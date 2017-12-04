@@ -1,14 +1,16 @@
 'use strict';
 // Imported Modules ===================================================
-var http = require('http')
-var https = require('https');
+const http = require('http')
+const https = require('https');
 var AWS = require('aws-sdk');
+const docClient = new AWS.DynamoDB.DocumentClient({
+    region: 'us-east-1'
+});
 // ====================================================================
 
 // API Token Values ===================================================
 var rcptid = '1628604870493102';
 var srvkey = 'zm3mH4vgXGr3g1gdYd%2BPOu8JqlWI1pBpzRptwsLnQfdF7v88BjPqLjwr6LFqWqJ71p%2FGrYskTTnYobuGM%2BhNsw%3D%3D';
-
 var VERIFY_TOKEN = "my_awesome_token";
 var MAP_ACCESS_TOKEN = 'AIzaSyA_Za9J7K37zE5OMkNt6cQ6RL2wgdBGx24'
 var PAGE_ACCESS_TOKEN = "EAAaZBOZCNwZBEABADa9lKcdw33RInWctiiLUvSsOU1wZCCooCGPXpZAf7weWywTT60p80mwcn663MxZB7LAWRLh8laJRweS51EZCE3aqn4I0va9oPsGjWZAQz6YDwuXTiKUHgMg4AAkK4JNQ0wKy7ZCRxawJE9XkkUnzDADs7cZChhjzVbynFyamp0";
@@ -29,21 +31,24 @@ var params = {
 
 // LAMBDA Main Function(Handler) ======================================
 exports.handler = (event, context, callback) => {
-    console.log("event : "+event);
     //lex handler
     try {
         if (event.bot.name.startsWith('TourBot')) {
             dispatch(event, (response) => callback(null, response));
         }
     } catch (err) {
-        console.log("An error occured in lex handler");
+    }
+
+    try{
+        receivedPostback(event);
+    }catch(err){
+
     }
 
     //facebook handler
     try {
         // process GET request
         if (event.queryStringParameters) {
-            console.log("event query : "+event.queryStringParameters);
             var queryParams = event.queryStringParameters;
             var rVerifyToken = queryParams['hub.verify_token']
             if (rVerifyToken === VERIFY_TOKEN) {
@@ -52,6 +57,7 @@ exports.handler = (event, context, callback) => {
                     'body': parseInt(challenge),
                     'statusCode': 200
                 };
+                started_button();
                 callback(null, response);
             } else {
                 var response = {
@@ -68,10 +74,9 @@ exports.handler = (event, context, callback) => {
                     var pageID = entry.id;
                     var timeOfEvent = entry.time;
                     entry.messaging.forEach(function(msg) {
-                        if (msg.message) {
-                            receivedMessage(msg); // 앵무새기능
+                        if (msg.message.quick_reply || msg.message.text) {
+                            receivedMessage(msg);
                         } else {
-                            console.log("Webhook received unknown event: ", event);
                         }
                     });
                 });
@@ -83,28 +88,28 @@ exports.handler = (event, context, callback) => {
             callback(null, response);
         }
     } catch (err) {
-        console.log("An error occured in facebook handler");
     }
 }
 // ====================================================================
 
 // Facebook Send API ==================================================
 function receivedMessage(event) {
-    console.log("Message data: ", event.message);
     var senderID = event.sender.id;
     var recipientID = event.recipient.id;
     var timeOfMessage = event.timestamp;
     var message = event.message;
-    console.log("Received message for user %d and page %d at %d with message:", senderID, recipientID, timeOfMessage);
-    console.log(JSON.stringify(message));
     var messageId = message.mid;
     var messageText;
+
     try{
+        console.log(message["postbakc"]["payload"]);
+    } catch(err){
+
+    }
+    try {
         messageText = message["quick_reply"]["payload"];
-        console.log("message is " + messageText);
-    }catch(err){
+    } catch (err) {
         messageText = message.text;
-        console.log("message is "+messageText)
     }
     var messageAttachments = message.attachments;
     if (messageText) {
@@ -118,12 +123,9 @@ function receivedMessage(event) {
                 // sendTextMessage(senderID, messageText);
                 params["inputText"] = messageText;
                 params["userId"] = senderID;
-                console.log(params["inputText"]);
                 lexruntime.postText(params, function(err, data) {
                     if (err) {
-                        console.log(err, err.stack);
                     } else { // successfully send facebook -> lambda -> lex
-                        console.log(data);
                     }
                 });
         }
@@ -132,43 +134,17 @@ function receivedMessage(event) {
     }
 }
 
-function receivePostback(webhook_event) {
-    var sender_psid = webhook_event.sender.id;
-    var recipient_psid = webhook_event.recipient.id;
-    var postback_timestamp = webhook_event.timestamp;
+function receivedPostback(event) {
+  var senderID = event.sender.id;
+  var recipientID = event.recipient.id;
+  var timeOfPostback = event.timestamp;
 
-    // The 'payload' param is a developer-defined field which is set in a postback
-    // button for Structured Messages.
-    var payload = webhook_event.postback.payload;
-    var postbackText = payload.button.postback.payload;
-    console.log("Received postback for user %d and page %d with payload '%s' " +
-        "at %d", sender_psid, recipient_psid, payload, postback_timestamp);
+  // The 'payload' param is a developer-defined field which is set in a postback
+  // button for Structured Messages.
+  var payload = event.postback.payload;
 
-    // When a postback is called, we'll send a message back to the sender to
-    // let them know it was successful
-    if (postbackText) {
-        // If we receive a text message, check to see if it matches a keyword
-        // and send back the example. Otherwise, just echo the text we received.
-        switch (postbackText) {
-            case 'generic':
-                //sendGenericMessage(senderID);
-                break;
-            default:
-                // sendTextMessage(senderID, messageText);
-                params["inputText"] = postbackText;
-                params["userId"] = senderID;
-                console.log(params["inputText"]);
-                lexruntime.postText(params, function(err, data) {
-                    if (err) {
-                        console.log(err, err.stack);
-                    } else { // successfully send facebook -> lambda -> lex
-                        console.log(data);
-                    }
-                });
-        }
-    } else if (messageAttachments) {
-        sendTextMessage(sender_psid, "Postback received.");
-    }
+  console.log("Received postback for user %d and page %d with payload '%s' " +
+    "at %d", senderID, recipientID, payload, timeOfPostback);
 }
 
 function getJson(url, callback) {
@@ -183,9 +159,9 @@ function getJson(url, callback) {
         // 가져온 string 값을 json parse작업을 통해 json으로써 받음
         res.on('end', function() {
             var response = JSON.parse(body);
-            console.log("before callback ");
             callback(response);
         });
+    }).on("error", (err) => {
     });
 }
 
@@ -199,7 +175,7 @@ function buildURL(contentsTypeName, siGunGu, category1, category2, category3) {
     };
     var pageNo = 1,
         numOfRows = 9;
-    return url = 'http://api.visitkorea.or.kr/openapi/service/rest/EngService/areaBasedList?' + 'ServiceKey=' + srvkey +
+    var url = 'http://api.visitkorea.or.kr/openapi/service/rest/EngService/areaBasedList?' + 'ServiceKey=' + srvkey +
         '&contentTypeId=' + contentsTypeID[contentsTypeName] +
         '&areaCode=1&sigunguCode=' + siGunGu +
         '&cat1=' + category1 + '&cat2=' + category2 + '&cat3=' + category3 +
@@ -207,11 +183,12 @@ function buildURL(contentsTypeName, siGunGu, category1, category2, category3) {
         '&numOfRows=' + numOfRows.toString() +
         '&pageNo=' + pageNo.toString() +
         '&_type=json';
+    return url;
 }
 
+// FACEBOKK에 보내는 함수인듯.
 function callSendAPI(messageData) {
     var body = JSON.stringify(messageData);
-    console.log("body: '%s'",body);
     var path = '/v2.6/me/messages?access_token=' + PAGE_ACCESS_TOKEN;
     var options = {
         host: "graph.facebook.com",
@@ -225,7 +202,6 @@ function callSendAPI(messageData) {
         var str = ''
         response.on('data', function(chunk) {
             str += chunk;
-            console.log("str: '%s'",str);
         });
         response.on('end', function() {
 
@@ -233,11 +209,21 @@ function callSendAPI(messageData) {
     }
     var req = https.request(options, callback);
     req.on('error', function(e) {
-        console.log('problem with request: ' + e);
     });
 
     req.write(body);
     req.end();
+}
+
+function started_button() {
+    var messageData = {
+        setting_type: "call_to_actions",
+        thread_state: "new_thread",
+        call_to_actions: [{
+            payload: "hi"
+        }]
+    };
+    callSendAPI(messageData);
 }
 
 function sendTextMessage(recipientId, messageText) {
@@ -308,99 +294,71 @@ function sendLocationMessage(recipientId, latitude, longitude) {
     callSendAPI(messageData);
 }
 
+
 function sendGenericMessage(recipientId, contentsTypeName, siGunGu, category1, category2, category3) {
-    console.log("start sending generic message");
-    var messageData;
-    var contentCards;
-    for (var i = 0; i < i < 9; i++) {
-        contentsCards.push({
-            "title": "title"+i,
-            "subtitle": "subtitle"+i,
-            // item_url: "https://www.oculus.com/en-us/rift/",
-            "buttons": [{
-                    "type": "phone_number",
-                    "title": "Call Representative",
-                    "payload": "phone_number"+i,
-                }
-            ],
-        });
-    }
-    messageData = {
-        "recipient": {
-            "id": recipientId
-        },
-        "message": {
-            "attachment": {
-                "type": "template",
-                "payload": {
-                    "template_type": "generic",
-                    "elements": contentsCards,
-                }
+    var contentsCards;
+    var mydata = getJson(buildURL(contentsTypeName, siGunGu, category1, category2, category3), function(res) {
+        var data = res.response.body.items.item;
+        contentsCards = null;
+        if (data != null) {
+            contentsCards = []
+            for (var i = 0; i < data.length && i < 9; i++) {
+                contentsCards.push({
+                    title: data[i]['title'],
+                    subtitle: data[i]['addr1'],
+                    item_url: "https://www.oculus.com/en-us/rift/",
+                    image_url: data[i]['firstimage'],
+                    buttons: [{
+                            type: "phone_number",
+                            title: "Call Representative",
+                            payload: "+821085675088",
+                            //payload: data[i]['tel'],
+                        },
+                        {
+                            type: "postback",
+                            title: "select",
+                            payload: data[i]['title']
+                        }
+                        /*
+                        , {
+                            type: "postback",
+                            title: "Call Postback",
+                            payload: "Payload for first bubble",
+                        }
+                        */
+                    ],
+                });
             }
+            contentsCards.push({
+                title: "View More Contents",
+                subtitle: "Click for more information",
+                buttons: [{
+                    type: "postback",
+                    title: "Click Here!",
+                    payload: "123"
+                    //payload: "More&Page2&" + contentsTypeName + "&" + siGunGu + "&" + category1 + "&" + category2 + "&" + category3,
+                }],
+            });
+            var messageData = {
+                recipient: {
+                    id: recipientId
+                },
+                message: {
+                    attachment: {
+                        type: "template",
+                        payload: {
+                            template_type: "generic",
+                            elements: contentsCards,
+                        }
+                    }
+                }
+            };
+            callSendAPI(messageData);
+        } else {
+            sendTextMessage(rcptid, "Not Found.");
         }
-    };
-    callSendAPI(messageData);
-
-    // var mydata = getJson(buildURL(contentsTypeName, siGunGu, category1, category2, category3), function(res) {
-    //     var data = res['response']['body']['items']['item'];
-    //     var contentsCards = null;
-    //     if (data != null) {
-    //         contentsCards = [];
-    //         for (var i = 0; i < data.length && i < 9; i++) {
-    //             contentsCards.push({
-    //                 "title": data[i]['title'],
-    //                 "subtitle": data[i]['addr1'],
-    //                 // item_url: "https://www.oculus.com/en-us/rift/",
-    //                 "image_url": data[i]['firstimage'],
-    //                 "buttons": [{
-    //                         "type": "phone_number",
-    //                         "title": "Call Representative",
-    //                         "payload": data[i]['tel'],
-    //                     }
-    //                     /*
-    //                     , {
-    //                         type: "postback",
-    //                         title: "Call Postback",
-    //                         payload: "Payload for first bubble",
-    //                     }
-    //                     */
-    //                 ],
-    //             });
-    //         }
-    //         contentsCards.push({
-    //             "title": "View More Contents",
-    //             "subtitle": "Click for more information",
-    //             "buttons": [{
-    //                 "type": "postback",
-    //                 "title": "Click Here!",
-    //                 "payload": "More&Page2&" + contentsTypeName + "&" + siGunGu + "&" + category1 + "&" + category2 + "&" + category3,
-    //             }],
-    //         });
-    //         console.log("content card is " + contentsCards);
-
-    //         messageData = {
-    //             "recipient": {
-    //                 "id": recipientId
-    //             },
-    //             "message": {
-    //                 "attachment": {
-    //                     "type": "template",
-    //                     "payload": {
-    //                         "template_type": "generic",
-    //                         "elements": contentsCards,
-    //                     }
-    //                 }
-    //             }
-    //         };
-    //         console.log("sending generic message" + messageData);
-    //         callSendAPI(messageData);
-    //     } else {
-    //         sendTextMessage(rcptid, "Not Found.")
-    //     }
-    // });
-    console.log("message data is "+messageData);
+    });
 }
-// ====================================================================
 
 // LEX API ============================================================
 function buildResponseCard(title, subTitle, options) {
@@ -482,7 +440,7 @@ function beginIntent(intentRequest, callback) {
         const type = (slots.Type ? slots.Type : null);
 
         if (meeting !== null && type === null) {
-            sendGenericMessage(rcptid, 'hotel', '', '', '', '');
+            //sendGenericMessage(rcptid, 'hotel', '', '', '', '');
             callback(elicitSlot(outputSessionAttributes, intentRequest.currentIntent.name, slots, 'Type', buildMessage('haiejflwijfiodijaiji eijfeifjwfh')));
             sendButtonMessage('1628604870493102', "Why don't you choose one of these? (Attraction, Hotel, Food, Festival/Event)");
         }
@@ -555,8 +513,6 @@ function hotelIntent(intentRequest, callback) {
             callback(elicitSlot(outputSessionAttributes, intentRequest.currentIntent.name, slots, 'SiGunGu', buildMessage('ok input si, gun, gu')));
         }
         if (hotelBegin == 'hotel' && hotelType !== null && (whetherPosition === 'no' || currentPosition !== null || siGunGu !== null)) {
-            //sendTextMessage('1628604870493102', 'Ok all done! you choose ' + hotelType + '!');
-            console.log("hotel intent is ending");
             sendGenericMessage(rcptid, 'hotel', '', '', '', '');
             callback(close(outputSessionAttributes, "Fulfilled"));
         }
@@ -644,7 +600,6 @@ function attractionIntent(intentRequest, callback) {
 }
 
 function dispatch(intentRequest, callback) {
-    //   console.log(`dispatch userId=${intentRequest.userId}, intent=${intentRequest.currentIntent.name}`);
     const name = intentRequest.currentIntent.name;
     // dispatch to the intent handlers
     if (name === 'Attraction') {
